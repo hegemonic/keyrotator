@@ -12,33 +12,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""keyrotator: GCP access key management utility.
+"""keyrotator: Key management utility for Google Cloud service account keys."""
 
-Usage:
-  keyrotator cleanup (--project-id <PROJECTID>) (--iam-account <ACCOUNT>)
-    (--key-max-age <DAYS>)
-  keyrotator create (--project-id <PROJECTID>) (--iam-account <ACCOUNT>)
-    [--key-type <TYPE>] [--key-algorithm <AlGORITHM>] [--output-file <FILE>]
-  keyrotator delete (--project-id <PROJECTID>) (--iam-account <ACCOUNT>)
-    (--key-id <KEYID>)
-  keyrotator list (--project-id <PROJECTID>) (--iam-account <ACCOUNT>)
-  keyrotator (-h | --help)
-  keyrotator (--version)
-
-Options:
-  --project-id PROJECTID        The project id of the key.
-  --iam-account ACCOUNT         The IAM service account id.
-  --key-max-age DAYS            An integer in the unit of days for which to
-                                delete a key if it is greather than.
-  --key-algorithm ALGORITHM     The algorithm of the key to create.
-  --key-id KEYID                The id of the key to delete.
-  --key-type TYPE               The type of private key to create.
-  --output-file FILE            The file name of the newly created key.
-  -h --help                     Display the usage.
-  --version                     Show the version number.
-
-"""
-
+import argparse
 import logging
 import sys
 import time
@@ -46,9 +22,60 @@ import time
 from cleanup import CleanupCommand
 from create import CreateCommand
 from delete import DeleteCommand
-from docopt_dispatch import dispatch
 from list import ListCommand
 from version import __version__
+
+
+def _init_arg_parser():
+  IAM_ACCOUNT_DESCRIPTION = "The IAM service account ID."
+  PROJECT_ID_DESCRIPTION = "The project ID of the key."
+  parser = argparse.ArgumentParser()
+  subparsers = parser.add_subparsers()
+
+  parser.add_argument("--version", action="version", version=__version__)
+
+  parser_cleanup = subparsers.add_parser("cleanup")
+  parser_cleanup.add_argument(
+      "--project-id", help=PROJECT_ID_DESCRIPTION, required=True)
+  parser_cleanup.add_argument(
+      "--iam-account", help=IAM_ACCOUNT_DESCRIPTION, required=True)
+  parser_cleanup.add_argument(
+      "--key-max-age", help="The maximum age of a key, in days, to exclude "
+      "from deletion. Older keys are deleted.", required=True, type=int)
+  parser_cleanup.set_defaults(func=Cleanup)
+
+  parser_create = subparsers.add_parser("create")
+  parser_create.add_argument(
+      "--project-id", help=PROJECT_ID_DESCRIPTION, required=True)
+  parser_create.add_argument(
+      "--iam-account", help=IAM_ACCOUNT_DESCRIPTION, required=True)
+  # TODO(jefesaurus): add choices
+  parser_create.add_argument(
+      "--key-type", help="The type of private key to create.")
+  # TODO(jefesaurus): add choices
+  parser_create.add_argument(
+      "--key-algorithm", help="The algorithm of the key to create.")
+  parser_create.add_argument(
+      "--output-file", help="The file name of the newly created key.")
+  parser_create.set_defaults(func=Create)
+
+  parser_delete = subparsers.add_parser("delete")
+  parser_delete.add_argument(
+      "--project-id", help=PROJECT_ID_DESCRIPTION, required=True)
+  parser_delete.add_argument(
+      "--iam-account", help=IAM_ACCOUNT_DESCRIPTION, required=True)
+  parser_delete.add_argument(
+      "--key-id", help="The ID of the key to delete.", required=True)
+  parser_delete.set_defaults(func=Delete)
+
+  parser_list = subparsers.add_parser("list")
+  parser_list.add_argument(
+      "--project-id", help=PROJECT_ID_DESCRIPTION, required=True)
+  parser_list.add_argument(
+      "--iam-account", help=IAM_ACCOUNT_DESCRIPTION, required=True)
+  parser_list.set_defaults(func=List)
+
+  return parser
 
 
 def main():
@@ -57,30 +84,26 @@ def main():
   logging.getLogger("").addHandler(logging.StreamHandler())
   logging.info("Logging established in %s.", log_filename)
 
-  dispatch(__doc__, version=__version__)
+  arg_parser = _init_arg_parser()
+  args = arg_parser.parse_args()
+  args.func(args)
 
 
-@dispatch.on("cleanup")
-def Cleanup(project_id, iam_account, key_max_age, **kwargs):
-  """For the specifed project, account, and key age delete invalid keys.
+def Cleanup(args):
+  """For the specified project, account, and key age, delete invalid keys.
 
   1) List keys for the given GCP Project ID and Service Account.
   2) Determine Key IDs that meet the key_max_age requirement.
   3) Perform a delete for the matching Key IDs.
 
   Args:
-    project_id: The project_id for which to create the key.
-    iam_account: The IAM account for which to create the key.
-    key_max_age: A positive integer (in days) for which to find keys to delete.
-    **kwargs: Additional parameters for the list command.
+    args: The parsed arguments from the command line.
   """
-  _ = kwargs
   command = CleanupCommand()
-  sys.exit(command.run(project_id, iam_account, key_max_age))
+  sys.exit(command.run(args.project_id, args.iam_account, args.key_max_age))
 
 
-@dispatch.on("create")
-def Create(project_id, iam_account, **kwargs):
+def Create(args):
   """Creates a new key for an account with the specified key type and algorithm.
 
   If no key type or key algorithm is provided, it will default the key type to
@@ -88,43 +111,31 @@ def Create(project_id, iam_account, **kwargs):
   The resulting key will be output to stdout by default.
 
   Args:
-    project_id: The project_id for which to create the key.
-    iam_account: The IAM account for which to create the key.
-    **kwargs: Additional parameters for the create command.
+    args: The parsed arguments from the command line.
   """
   command = CreateCommand()
-  sys.exit(command.run(project_id, iam_account, key_type=kwargs["key_type"],
-                       key_algorithm=kwargs["key_algorithm"],
-                       output_file=kwargs["output_file"]))
+  sys.exit(command.run(args.project_id, args.iam_account, args.key_type,
+                       args.key_algorithm, args.output_file))
 
 
-@dispatch.on("delete")
-def Delete(project_id, iam_account, key_id, **kwargs):
+def Delete(args):
   """Deletes a specific key for an account.
 
   Args:
-    project_id: The project_id for which to delete the key.
-    iam_account: The IAM account for which to delete the key.
-    key_id: The ID of the key to delete.
-    **kwargs: Additional parameters for the delete command.
+    args: The parsed arguments from the command line.
   """
-  _ = kwargs
   command = DeleteCommand()
-  sys.exit(command.run(project_id, iam_account, key_id))
+  sys.exit(command.run(args.project_id, args.iam_account, args.key_id))
 
 
-@dispatch.on("list")
-def List(project_id, iam_account, **kwargs):
+def List(args):
   """List keys for service account.
 
   Args:
-    project_id: The project_id for which to list keys.
-    iam_account: The IAM account for which to list keys.
-    **kwargs: Additional parameters for the list command.
+    args: The parsed arguments from the command line.
   """
-  _ = kwargs
   command = ListCommand()
-  sys.exit(command.run(project_id, iam_account))
+  sys.exit(command.run(args.project_id, args.iam_account))
 
 
 if __name__ == "__main__":

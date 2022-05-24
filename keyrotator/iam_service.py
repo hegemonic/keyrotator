@@ -19,7 +19,7 @@ import re
 
 from apiclient import discovery
 from apiclient import errors
-from oauth2client.client import GoogleCredentials
+import google.auth
 from retrying import retry
 
 RETRY_MULTIPLIER_MS = 1000
@@ -32,7 +32,9 @@ def _get_iam_service():
   Returns:
     An apiclient service object.
   """
-  credentials = GoogleCredentials.get_application_default()
+  credentials, _ = google.auth.default(
+      scopes=["https://www.googleapis.com/auth/cloud-platform"]
+  )
   return discovery.build(
       serviceName="iam", version="v1", credentials=credentials)
 
